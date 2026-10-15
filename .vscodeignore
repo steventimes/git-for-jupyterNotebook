@@ -1,0 +1,10 @@
+**/*
+!package.json
+!README.md
+!VERIFICATION.md
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+!out/src/**
+!media/**
+!demo/demo.ipynb
+!node_modules/diff/**

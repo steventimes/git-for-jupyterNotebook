@@ -1,0 +1,10 @@
+node_modules/
+out/
+.tmp/
+.vscode-test/
+output/
+*.vsix
+
+# Local release and review artifacts
+/SHA256SUMS
+/security_best_practices_report.md

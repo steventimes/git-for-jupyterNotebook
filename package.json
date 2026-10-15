@@ -1,0 +1,112 @@
+{
+  "name": "notebook-git-gutter",
+  "displayName": "Notebook Git Gutter",
+  "description": "Live line-level Git changes inside native notebook cells.",
+  "version": "0.1.0",
+  "publisher": "notebook-git-gutter",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/steventimes/git-for-jupyterNotebook.git"
+  },
+  "engines": {
+    "vscode": "^1.141.0",
+    "node": ">=22.13.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "Notebooks",
+    "SCM Providers"
+  ],
+  "activationEvents": [
+    "onNotebook:jupyter-notebook"
+  ],
+  "main": "./out/src/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Reading Git baselines requires a trusted workspace."
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "scripts": {
+    "compile": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true })\" && tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "lint": "eslint src probe tests scripts",
+    "test": "npm run compile && node --test --test-isolation=none out/tests/unit/*.test.js out/tests/integration/*.test.js",
+    "test:integration": "npm run compile && node --test --test-isolation=none out/tests/integration/*.test.js",
+    "test:host": "npm run compile && node scripts/run-vscode.cjs host",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --githubBranch main",
+    "test:ui": "npm run compile && node scripts/run-vscode.cjs ui",
+    "benchmark": "npm run compile && node out/tests/performance.js",
+    "test:vsix": "npm run compile && node scripts/run-vscode.cjs vsix"
+  },
+  "dependencies": {
+    "diff": "9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.0.0",
+    "eslint": "10.12.0",
+    "playwright": "1.64.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "notebookGitGutter.toggle",
+        "title": "Notebook Git Gutter: Toggle"
+      },
+      {
+        "command": "notebookGitGutter.refresh",
+        "title": "Notebook Git Gutter: Refresh"
+      },
+      {
+        "command": "notebookGitGutter.showDiagnostics",
+        "title": "Notebook Git Gutter: Show Diagnostics"
+      }
+    ],
+    "configuration": {
+      "title": "Notebook Git Gutter",
+      "properties": {
+        "notebookGitGutter.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Show source Git changes inside native Notebook cells."
+        },
+        "notebookGitGutter.baseline": {
+          "type": "string",
+          "enum": [
+            "HEAD",
+            "index"
+          ],
+          "default": "HEAD",
+          "scope": "resource",
+          "description": "Compare in-memory source with HEAD or the staging area."
+        },
+        "notebookGitGutter.debounceMs": {
+          "type": "number",
+          "default": 200,
+          "minimum": 0,
+          "maximum": 2000,
+          "scope": "resource",
+          "description": "Delay source analysis after typing, in milliseconds."
+        },
+        "notebookGitGutter.showCellSummary": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Show an additional Cell status summary."
+        }
+      }
+    }
+  }
+}
