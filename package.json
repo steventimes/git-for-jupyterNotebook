@@ -40,7 +40,7 @@
     "test": "npm run compile && node --test --test-isolation=none out/tests/unit/*.test.js out/tests/integration/*.test.js",
     "test:integration": "npm run compile && node --test --test-isolation=none out/tests/integration/*.test.js",
     "test:host": "npm run compile && node scripts/run-vscode.cjs host",
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "node scripts/check-package.cjs && npm run compile",
     "package": "vsce package --githubBranch main",
     "test:ui": "npm run compile && node scripts/run-vscode.cjs ui",
     "benchmark": "npm run compile && node out/tests/performance.js",
