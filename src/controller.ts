@@ -24,7 +24,7 @@ export class Controller implements vscode.Disposable, vscode.NotebookCellStatusB
   private readonly version: string;
   private readonly subscriptions: vscode.Disposable[] = [];
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1);
-  private readonly output = vscode.window.createOutputChannel('Notebook Git Gutter');
+  private readonly output = vscode.window.createOutputChannel('Jupyter Notebook Git Marks');
   private readonly errors = new Map<string, number>();
   private readonly cellSummaryChanged = new vscode.EventEmitter<void>();
   readonly onDidChangeCellStatusBarItems = this.cellSummaryChanged.event;
@@ -164,8 +164,8 @@ export class Controller implements vscode.Disposable, vscode.NotebookCellStatusB
       analysis?.state === 'incomplete' ? '暂未完成分析' : `+${added} ~${modified} −${deleted} cells${moved ? ` ↔${moved}` : ''}`;
     if (!session.pending && analysis?.reason === 'path-absent') label += ' (new / unresolved rename)';
     if (!session.pending && analysis?.reason === 'unborn') label += ' (no HEAD)';
-    this.status.text = `NGG ${settings.baseline}: ${label}`;
-    this.status.tooltip = `Notebook Git Gutter\nAdded cells: ${added}; modified cells: ${modified}; deleted cells: ${deleted}; moved cells: ${moved}.\n` +
+    this.status.text = `JGM ${settings.baseline}: ${label}`;
+    this.status.tooltip = `Jupyter Notebook Git Marks\nAdded cells: ${added}; modified cells: ${modified}; deleted cells: ${deleted}; moved cells: ${moved}.\n` +
       'Deleted whole cells appear only in this summary. Click for diagnostics.';
     this.status.show();
   }

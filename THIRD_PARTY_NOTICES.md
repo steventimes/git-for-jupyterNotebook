@@ -1,5 +1,9 @@
 # Third-party notices
 
+The project license does not replace the licenses of these components. The
+project's prior MIT notice is preserved separately in LICENSES/MIT-legacy.txt;
+previously granted rights remain available under its original terms.
+
 ## diff 9.0.0
 
 https://github.com/kpdecker/jsdiff

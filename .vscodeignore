@@ -1,8 +1,9 @@
 **/*
 !package.json
 !README.md
-!VERIFICATION.md
+!README.zh-CN.md
 !LICENSE
+!LICENSES/MIT-legacy.txt
 !THIRD_PARTY_NOTICES.md
 !out/src/**
 !media/**

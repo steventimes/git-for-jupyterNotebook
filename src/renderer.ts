@@ -46,7 +46,7 @@ export class Renderer implements vscode.Disposable {
     message.supportHtml = false;
     const range = change.kind === 'added' ? `Current lines ${change.current.start + 1}–${change.current.end}`
       : `Baseline lines ${change.base.start + 1}–${change.base.end}`;
-    message.appendText(`Notebook Git Gutter: ${change.kind}. ${range}.`);
+    message.appendText(`Jupyter Notebook Git Marks: ${change.kind}. ${range}.`);
     if (change.removed) message.appendText(`\n\nPrevious source:\n${change.removed.slice(0, 3000)}${change.removed.length > 3000 ? '\n…' : ''}`);
     return message;
   }

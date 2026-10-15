@@ -54,8 +54,47 @@ CPU 为 Intel Xeon Gold 6240R 2.40 GHz，系统报告 96 个逻辑 CPU。测量�
 
 ## 本地包验收
 
-执行 `npm run package` 生成 `notebook-git-gutter-0.1.0.vsix`。随后执行 `npm run test:vsix`，把该 VSIX 安装到临时扩展目录，以独立测试 harness 运行相同的宿主套件，避免开发目录覆盖安装包。结果写入 `.tmp/vsix-host-results.json`。
+执行 `npm run package` 生成 `notebook-git-gutter-0.1.1.vsix`。随后执行 `npm run test:vsix`，把该 VSIX 安装到临时扩展目录，以独立测试 harness 运行相同的宿主套件，避免开发目录覆盖安装包。结果写入 `.tmp/vsix-host-results.json`。
 
-VSIX 仅包含编译后的产品代码、SVG、运行时 diff 库及许可证、演示 Notebook 和说明。测试代码、浏览器工具、日志、类型快照和个人配置不进入包。安装方式见 README。
+VSIX 仅包含编译后的产品代码、SVG、插件图标、真实运行截图、运行时 diff 库及许可证、演示 Notebook 和中英文使用说明。本文中的开发步骤、验收记录、测试代码、浏览器工具、日志、类型快照和个人配置不进入包。安装方式见 README。
 
 当前没有运行 Windows、macOS 或 Remote SSH / WSL 的 GUI 验收。Web 和虚拟工作区不受支持。复杂重复 Cell、拆分或合并可能无法可靠匹配，超出明确计算上限会显示未完成分析。默认断点与窄条在本次测试中可以共存，其他扩展的 gutter 装饰仍可能重叠。
+
+## 构建与调试
+
+
+使用 Node.js 22.13+ 和 npm。依赖版本由 `package-lock.json` 锁定。先运行 `npm ci --ignore-scripts`，随后可执行：
+
+```sh
+npm run typecheck
+npm run lint
+npm test
+```
+
+`npm test` 编译一次，运行 28 个单元测试和 8 组 Git 集成测试，不需要 GUI。构建会先清理 `out/`，避免已删除测试的编译产物继续残留。其他检查按需要运行：
+
+| 命令 | 用途 |
+| --- | --- |
+| `npm run test:integration` | 单独排查 Git 集成问题，已包含在 `npm test` 中 |
+| `npm run test:host` | 7 组真实宿主检查，覆盖缓存、Git 事件、资源释放和多仓库 |
+| `npm run test:ui` | 原生 Notebook 的行级标记、Undo、Cell 插入、滚动、分屏及主题验收 |
+| `npm run benchmark` | 测量大型 Notebook 和连续编辑的分析耗时 |
+| `npm run package` | 生成本地 VSIX |
+| `npm run test:vsix` | 对实际安装包运行同一宿主套件 |
+
+宿主、UI 和 VSIX 检查共用 `scripts/run-vscode.cjs`。测试位于 `tests/unit/`、`tests/integration/` 和 `tests/vscode/`，Git 夹具统一放在 `tests/gitFixture.ts`。旧单 Cell 自动测试和重复的自动探针流程已移除，相关交互统一由 UI 测试验收。
+
+F5 选择 `Jupyter Notebook Git Marks` 调试产品，或选择 `Native Notebook decoration probe` 手动运行独立渲染探针。演示文件为 `demo/demo.ipynb`。宿主和 UI 测试自动创建临时 Git 仓库及独立 VS Code 用户目录，不修改日常配置。Linux 无显示环境需要 Xvfb，Openbox 用于提供窗口焦点。首次运行会下载锁定的 VS Code 1.141.0，也可通过 `VSCODE_EXECUTABLE` 指定该版本的可执行文件。
+
+UI 测试通过真实键盘输入修改源码，调用 VS Code 原生 Undo 和 Notebook reveal 命令进行撤销与滚动，使用测试专用 kernel 产生输出。真实截图和渲染节点检查保存在 `output/playwright/product/`，性能测量在 `output/performance.json`。这些测试工具和产物不进入 VSIX。
+
+
+
+## 发布到 Marketplace
+
+
+本项目的 publisher 为 `StevenYang0316-5274`，扩展名为 `notebook-git-gutter`。在 [Marketplace 管理页](https://marketplace.visualstudio.com/manage) 登录拥有该 publisher 发布权限的 Microsoft 账户。
+
+运行 `npm run package` 和 `npm run test:vsix`，随后在管理页选择 `New extension → Visual Studio Code`，上传新生成的 VSIX。包名自动采用 manifest 的名称和版本。更新已发布扩展时，先执行 `npm version patch --no-git-tag-version`，再打包、验证并上传新版本。
+
+命令行发布已有包可使用 `npx --no-install vsce publish --packagePath ./notebook-git-gutter-0.1.1.vsix`，认证方式见 [官方发布文档](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)。这条命令会上传到市场，本项目的构建和测试脚本不会执行发布。`package.json` 已填写公开源码仓库，打包时会把文档的相对链接改写为该仓库 `main` 分支的链接。

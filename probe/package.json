@@ -1,6 +1,6 @@
 {
   "name": "notebook-git-gutter-probe",
-  "publisher": "notebook-git-gutter",
+  "publisher": "StevenYang0316-5274",
   "version": "0.0.1",
   "engines": { "vscode": "^1.141.0" },
   "main": "../out/probe/extension.js",

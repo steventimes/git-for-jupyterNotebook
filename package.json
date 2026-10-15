@@ -1,10 +1,10 @@
 {
   "name": "notebook-git-gutter",
-  "displayName": "Notebook Git Gutter",
-  "description": "Live line-level Git changes inside native notebook cells.",
-  "version": "0.1.0",
-  "publisher": "notebook-git-gutter",
-  "license": "MIT",
+  "displayName": "Jupyter Notebook Git Marks",
+  "description": "Live Git change markers in VS Code's native Jupyter Notebook cells.",
+  "version": "0.1.1",
+  "publisher": "StevenYang0316-5274",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
     "url": "https://github.com/steventimes/git-for-jupyterNotebook.git"
@@ -62,19 +62,19 @@
     "commands": [
       {
         "command": "notebookGitGutter.toggle",
-        "title": "Notebook Git Gutter: Toggle"
+        "title": "Jupyter Notebook Git Marks: Toggle"
       },
       {
         "command": "notebookGitGutter.refresh",
-        "title": "Notebook Git Gutter: Refresh"
+        "title": "Jupyter Notebook Git Marks: Refresh"
       },
       {
         "command": "notebookGitGutter.showDiagnostics",
-        "title": "Notebook Git Gutter: Show Diagnostics"
+        "title": "Jupyter Notebook Git Marks: Show Diagnostics"
       }
     ],
     "configuration": {
-      "title": "Notebook Git Gutter",
+      "title": "Jupyter Notebook Git Marks",
       "properties": {
         "notebookGitGutter.enabled": {
           "type": "boolean",
@@ -108,5 +108,12 @@
         }
       }
     }
-  }
+  },
+  "icon": "media/icon.png",
+  "keywords": [
+    "jupyter",
+    "notebook",
+    "git",
+    "changes"
+  ]
 }
