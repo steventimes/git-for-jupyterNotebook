@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
@@ -125,4 +125,86 @@ test('a baseline exceeding the cell count limit fails explicitly', async () => r
   const result = await reader.read(root, file, 'index');
   assert.equal(result.kind, 'error');
   if (result.kind === 'error') assert.equal(result.code, 'too-many-cells');
+}));
+
+test('intent-to-add differs from a genuinely staged empty notebook through add and reset', async () => repo(async (root, file) => {
+  await writeFile(file, nb('new'));
+  git(root, 'add', '-N', '--', file);
+  const intent = await reader.read(root, file, 'index');
+  assert.equal(intent.kind, 'missing');
+  if (intent.kind === 'missing') assert.equal(intent.reason, 'intent-to-add');
+  git(root, 'add', '--', file); assert.equal((await reader.read(root, file, 'index')).kind, 'ready');
+  git(root, 'reset', '--', file); assert.equal((await reader.read(root, file, 'index')).kind, 'missing');
+  await writeFile(file, ''); git(root, 'add', '--', file);
+  assert.deepEqual(await reader.read(root, file, 'index'), { kind: 'error', code: 'invalid-json' });
+}));
+test('directory aliases use the physical root while tracked file symlinks stay unsupported', { skip: process.platform === 'win32' }, async () => repo(async (root, file) => {
+  const physical = path.join(root, 'physical'); await mkdir(physical); git(physical, 'init');
+  const target = path.join(physical, path.basename(file)); await writeFile(target, nb('alias'));
+  git(physical, 'add', '.'); git(physical, 'commit', '-m', 'base');
+  const alias = path.join(root, 'alias'); await symlink(physical, alias, 'dir');
+  const logical = path.join(alias, path.basename(file));
+  assert.equal(await reader.rootFor(logical), physical);
+  assert.equal((await reader.read(physical, logical, 'HEAD')).kind, 'ready');
+  const link = path.join(physical, 'file-link.ipynb'); await symlink(target, link);
+  git(physical, 'add', '.');
+  assert.deepEqual(await reader.read(physical, link, 'index'), { kind: 'error', code: 'unsupported-git-entry' });
+}));
+
+test('unchanged index blobs are parsed once and transient reads can recover', async () => repo(async (root, file) => {
+  const engine = new GitReader('git');
+  await writeFile(file, nb('cached')); git(root, 'add', '.');
+  const first = await engine.read(root, file, 'index');
+  assert.equal(first.kind, 'ready'); const reads = engine.blobReads;
+  for (let i = 0; i < 3; i++) assert.equal((await engine.read(root, file, 'index')).kind, 'ready');
+  assert.equal(engine.blobReads, reads); assert.equal(engine.blobHits, 3);
+  await writeFile(file, '{broken'); git(root, 'add', '.');
+  assert.deepEqual(await engine.read(root, file, 'index'), { kind: 'error', code: 'invalid-json' });
+  await writeFile(file, nb('recovered')); git(root, 'add', '.');
+  assert.equal((await engine.read(root, file, 'index')).kind, 'ready');
+  engine.clear(root);
+  assert.equal((await engine.read(root, file, 'index')).kind, 'ready');
+  assert.equal(engine.blobReads, reads + 3);
+}));
+
+test('HEAD reads stay pinned to their cache identity while Git advances', async () => repo(async (root, file) => {
+  const engine = new GitReader('git');
+  assert.equal(await engine.resolveHead(root), undefined);
+  await writeFile(file, nb('A')); git(root, 'add', '.'); git(root, 'commit', '-m', 'A');
+  const a = await engine.resolveHead(root); assert.ok(a);
+  await writeFile(file, nb('B')); git(root, 'commit', '-am', 'B');
+  const pinned = await engine.read(root, file, 'HEAD', undefined, { revision: a });
+  assert.equal(pinned.kind, 'ready');
+  if (pinned.kind === 'ready') { assert.ok(pinned.revision.startsWith(a + ':')); assert.equal(pinned.cells[0]?.source, 'A'); }
+  const unborn = await engine.read(root, file, 'HEAD', undefined, { revision: undefined });
+  assert.deepEqual(unborn, { kind: 'missing', reason: 'unborn', revision: 'unborn' });
+  assert.equal((await engine.read(root, file, 'HEAD')).kind, 'ready');
+}));
+
+test('parallel notebook reads bound subprocesses and share immutable blobs', async () => repo(async (root, file) => {
+  const engine = new GitReader('git');
+  await writeFile(file, nb('shared')); git(root, 'add', '.');
+  const results = await Promise.all(Array.from({ length: 80 }, () => engine.read(root, file, 'index')));
+  assert.ok(results.every(result => result.kind === 'ready'));
+  assert.equal(engine.peakActive, 4); assert.equal(engine.activeCalls, 0); assert.equal(engine.queuedCalls, 0);
+  assert.equal(engine.blobReads, 1);
+}));
+
+test('the raw baseline byte limit includes outputs even when source is small', async () => repo(async (root, file) => {
+  const engine = new GitReader('git');
+  await writeFile(file, JSON.stringify({ nbformat: 4, metadata: {}, cells: [{ cell_type: 'code', source: 'print(1)',
+    outputs: [{ output_type: 'display_data', data: { 'image/png': 'A'.repeat(8 * 1024 * 1024) } }] }] }));
+  git(root, 'add', '--', file);
+  assert.deepEqual(await engine.read(root, file, 'index'), { kind: 'error', code: 'baseline-too-large' });
+  assert.equal(engine.blobReads, 0, 'reject by size before decoding or parsing a large output blob');
+}));
+
+test('a reliable rename still reads the old path after its parent directory was moved', async () => repo(async root => {
+  const oldDirectory = path.join(root, 'old folder'); await mkdir(oldDirectory);
+  const oldFile = path.join(oldDirectory, 'old.ipynb'); await writeFile(oldFile, nb('before move'));
+  git(root, 'add', '.'); git(root, 'commit', '-m', 'base');
+  const newDirectory = path.join(root, 'new folder'); git(root, 'mv', '--', oldDirectory, newDirectory);
+  const result = await reader.read(root, path.join(newDirectory, 'old.ipynb'), 'HEAD', oldFile);
+  assert.equal(result.kind, 'ready');
+  if (result.kind === 'ready') assert.equal(result.cells[0]?.source, 'before move');
 }));

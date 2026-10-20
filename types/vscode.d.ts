@@ -5634,9 +5634,6 @@ declare module 'vscode' {
 
 		/**
 		 * The position of this hint.
-		 *
-		 * If multiple hints have the same position, they will be shown in the order
-		 * they appear in the results.
 		 */
 		position: Position;
 
@@ -18393,7 +18390,7 @@ declare module 'vscode' {
 		 * until the cancellation is requested on the `token`.
 		 *
 		 * @param request Request information for the test run.
-		 * @param token Token that signals the used asked to abort the
+		 * @param cancellationToken Token that signals the used asked to abort the
 		 * test run. If cancellation is requested on this token, all {@link TestRun}
 		 * instances associated with the request will be
 		 * automatically cancelled as well.
@@ -20484,8 +20481,7 @@ declare module 'vscode' {
 		uri: Uri;
 
 		/**
-		 * Optional additional headers included with requests to the server's origin.
-		 * These headers are not sent to a different origin, including across redirects.
+		 * Optional additional heads included with each request to the server.
 		 */
 		headers: Record<string, string>;
 
@@ -20498,7 +20494,7 @@ declare module 'vscode' {
 		/**
 		 * @param label The human-readable name of the server.
 		 * @param uri The URI of the server.
-		 * @param headers Optional additional headers included with requests to the server's origin.
+		 * @param headers Optional additional heads included with each request to the server.
 		 */
 		constructor(label: string, uri: Uri, headers?: Record<string, string>, version?: string);
 	}

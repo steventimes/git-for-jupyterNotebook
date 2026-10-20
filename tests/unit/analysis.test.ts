@@ -67,3 +67,36 @@ test('cache shares in-flight reads and invalidation cannot reinsert an old resul
   finish('old'); assert.equal(await old, 'old');
   assert.equal(await cache.get('repo/file/HEAD', load), 'fresh');
 });
+
+test('budget exhaustion cannot promote an unverified match through session replay', async t => {
+  const baseline: Baseline = { kind: 'ready', revision: 'budget', path: 'test.ipynb', cells: [
+    { kind: 'code', source: 'result = 100' }, { kind: 'code', source: 'result = 101' },
+  ] };
+  const current = [{ kind: 'code' as const, source: 'result = 201', session: 'a' },
+    { kind: 'code' as const, source: 'result = 200', session: 'b' }];
+  const fresh = await new Analyzer().analyze(baseline, current);
+  for (let allowed = 1; allowed <= 20; allowed++) {
+    const analyzer = new Analyzer(); let calls = 0;
+    const clock = t.mock.method(performance, 'now', () => calls++ < allowed ? 0 : 1000);
+    try { await analyzer.analyze(baseline, current); } finally { clock.mock.restore(); }
+    const replay = await analyzer.analyze(baseline, current);
+    assert.deepEqual(replay?.alignment?.pairs.map(p => [p.base, p.current]), fresh?.alignment?.pairs.map(p => [p.base, p.current]), `clock cutoff ${allowed}`);
+    assert.equal(replay?.state, fresh?.state);
+  }
+});
+
+test('transient typed baseline errors are evicted even when the HEAD cache key is unchanged', async () => {
+  const cache = new BaselineCache<Baseline>();
+  const reusable = (value: Baseline) => value.kind !== 'error';
+  await cache.get('same-head', async () => ({ kind: 'error', code: 'merge-conflict' }), reusable);
+  assert.equal(cache.size, 0);
+  assert.equal(await cache.get('same-head', async () => base, reusable), base);
+});
+test('reliable cell identities avoid hashing unchanged notebook source', async () => {
+  const analyzer = new Analyzer();
+  const cells = [{ kind: 'code' as const, source: 'changed', id: 'a', session: 'uri' }];
+  assert.equal((await analyzer.analyze(base, cells))?.alignment?.hashedChars, 0);
+  cells[0] = { ...cells[0]!, source: 'changed again' };
+  const result = await analyzer.analyze(base, cells);
+  assert.equal(result?.alignment?.hashedChars, 0); assert.equal(result?.computed, 1);
+});

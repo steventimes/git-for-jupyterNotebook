@@ -1,5 +1,7 @@
 export type CellKind = 'code' | 'markdown' | 'raw';
 export interface SourceCell { kind: CellKind; source: string; id?: string; session?: string; limited?: boolean }
+export const MAX_NOTEBOOK_CELLS = 2000;
+export const MAX_NOTEBOOK_CHARS = 16_000_000;
 export const normalizeText = (text: string): string => text.replace(/\r\n/g, '\n');
 export function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -15,7 +17,7 @@ export function parseNotebook(text: string): SourceCell[] {
     throw new NotebookFormatError('Expected nbformat 4 with a cells array');
   }
   // Reject oversized cell lists before allocating normalized source records for each cell.
-  if (data.cells.length > 2000) throw new NotebookLimitError('Notebook cell count limit (2000)');
+  if (data.cells.length > MAX_NOTEBOOK_CELLS) throw new NotebookLimitError('Notebook cell count limit (2000)');
   return data.cells.map((value: unknown) => {
     if (!record(value) || typeof value.cell_type !== 'string' || !['code', 'markdown', 'raw'].includes(value.cell_type)) {
       throw new NotebookFormatError('Unsupported cell type');

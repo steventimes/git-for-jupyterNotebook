@@ -6,7 +6,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
 async function main() {
-  const samples: { scenario: string; ms: number; recomputed: number; state: string }[] = [];
+  const samples: { scenario: string; ms: number; recomputed: number; hashedChars: number; state: string }[] = [];
   const cells: SourceCell[] = Array.from({ length: 300 }, (_, i) => ({ kind: 'code', id: `cell-${i}`, session: `uri-${i}`,
     source: Array.from({ length: 40 }, (_, j) => `value_${i}_${j} = ${j}  # sample source`).join('\n') }));
   const base: Baseline = { kind: 'ready', revision: 'benchmark', path: 'generated.ipynb', cells };
@@ -14,7 +14,7 @@ async function main() {
   const measure = async (scenario: string, input: SourceCell[], baseline = base, engine = analyzer) => {
     const start = performance.now(); const result = await engine.analyze(baseline, input);
     assert.ok(result); assert.equal(result.state, 'ready');
-    samples.push({ scenario, ms: performance.now() - start, recomputed: result.computed, state: result.state });
+    samples.push({ scenario, ms: performance.now() - start, recomputed: result.computed, hashedChars: result.alignment?.hashedChars ?? 0, state: result.state });
   };
   await measure('300 cells x 40 lines, cold', cells);
   const edited = cells.map((c, i) => i === 150 ? { ...c, source: c.source.replace('= 0', '= 999') } : c);

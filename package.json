@@ -2,7 +2,7 @@
   "name": "notebook-git-gutter",
   "displayName": "Jupyter Notebook Git Marks",
   "description": "Live Git change markers in VS Code's native Jupyter Notebook cells.",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "publisher": "StevenYang0316-5274",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -10,7 +10,7 @@
     "url": "https://github.com/steventimes/git-for-jupyterNotebook.git"
   },
   "engines": {
-    "vscode": "^1.141.0",
+    "vscode": "^1.130.0",
     "node": ">=22.13.0"
   },
   "extensionKind": [
@@ -71,6 +71,10 @@
       {
         "command": "notebookGitGutter.showDiagnostics",
         "title": "Jupyter Notebook Git Marks: Show Diagnostics"
+      },
+      {
+        "command": "notebookGitGutter.showChange",
+        "title": "Jupyter Notebook Git Marks: Show Change"
       }
     ],
     "configuration": {
@@ -107,6 +111,21 @@
           "description": "Show an additional Cell status summary."
         }
       }
+    },
+    "menus": {
+      "editor/lineNumber/context": [
+        {
+          "command": "notebookGitGutter.showChange",
+          "when": "notebookType == jupyter-notebook && config.notebookGitGutter.enabled",
+          "group": "navigation@20"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "notebookGitGutter.showChange",
+          "when": "false"
+        }
+      ]
     }
   },
   "icon": "media/icon.png",

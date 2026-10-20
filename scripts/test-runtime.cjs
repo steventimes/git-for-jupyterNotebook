@@ -4,9 +4,16 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { downloadAndUnzipVSCode } = require('@vscode/test-electron');
 const root = path.resolve(__dirname, '..');
+const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 async function runtime() {
+  if (process.env.VSCODE_EXECUTABLE) return process.env.VSCODE_EXECUTABLE;
+  const version = process.env.VSCODE_VERSION || manifest.engines.vscode.replace(/^\^/, '');
   const cached = path.join(root, '.tmp/vscode', process.platform === 'win32' ? 'Code.exe' : 'code');
-  return process.env.VSCODE_EXECUTABLE || (fs.existsSync(cached) ? cached : await downloadAndUnzipVSCode('1.141.0'));
+  try {
+    const info = JSON.parse(fs.readFileSync(path.join(path.dirname(cached), 'resources/app/package.json'), 'utf8'));
+    if (fs.existsSync(cached) && info.version === version) return cached;
+  } catch { /* Download the requested version instead of trusting an unrelated cache. */ }
+  return downloadAndUnzipVSCode(version);
 }
 function fixture(multiRoot = false) {
   fs.mkdirSync(path.join(root, '.tmp'), { recursive: true });
@@ -18,6 +25,7 @@ function fixture(multiRoot = false) {
     outputs: [{ output_type: 'stream', name: 'stdout', text: [`Notebook ${i} 3\n`] }] }));
   data.cells.splice(1, 0, { cell_type: 'markdown', id: 'markdown', metadata: {}, source: '# Native Notebook\nMarkdown source is compared too.' });
   fs.writeFileSync(path.join(repo, 'demo.ipynb'), JSON.stringify(data, null, 2));
+  fs.writeFileSync(path.join(repo, 'quick-diff-probe.py'), data.cells[0].source.join(''));
   for (const args of [['init', '-b', 'main'], ['add', '.'], ['-c', 'user.name=Notebook Test', '-c', 'user.email=test@example.invalid', '-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'fixture']]) {
     git(repo, ...args);
   }
@@ -26,6 +34,12 @@ function fixture(multiRoot = false) {
   fs.writeFileSync(path.join(profile, 'User/settings.json'), JSON.stringify({ 'chat.disableAIFeatures': true,
     'telemetry.telemetryLevel': 'off', 'workbench.startupEditor': 'none', 'workbench.colorTheme': 'Default Dark Modern',
     'workbench.secondarySideBar.defaultVisibility': 'hidden', 'extensions.autoUpdate': false, 'update.mode': 'none' }));
+  // The Jupyter extension normally contributes this language. Register only the
+  // language in our isolated fixture so raw/code API events need no kernel.
+  const languageFixture = path.join(profile, 'extensions', 'ngg-test-languages');
+  fs.mkdirSync(languageFixture, { recursive: true });
+  fs.writeFileSync(path.join(languageFixture, 'package.json'), JSON.stringify({ name: 'ngg-test-languages', publisher: 'fixture',
+    version: '0.0.1', engines: { vscode: manifest.engines.vscode }, contributes: { languages: [{ id: 'raw' }] } }));
   let secondRepo;
   let workspace;
   if (multiRoot) {

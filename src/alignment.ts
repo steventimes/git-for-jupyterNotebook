@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto';
 import { diffArrays, diffChars } from 'diff';
-import { cellId, SourceCell } from './normalize';
+import { cellId, MAX_NOTEBOOK_CELLS, MAX_NOTEBOOK_CHARS, SourceCell } from './normalize';
 
 export interface CellPair { current: number; base: number; reason: 'id' | 'session' | 'exact' | 'sequence' | 'similarity'; moved: boolean }
 export interface Alignment {
   pairs: CellPair[]; added: number[]; deleted: number[];
   uncertainCurrent: number[]; uncertainBase: number[]; complete: boolean;
   reason?: string;
+  hashedChars?: number;
 }
+const hashes = new WeakMap<SourceCell, { source: string; kind: SourceCell['kind']; key: string }>();
 function groups(keys: readonly (string | undefined)[]): Map<string, number[]> {
   const result = new Map<string, number[]>();
   keys.forEach((key, i) => { if (key !== undefined) { const list = result.get(key) ?? []; list.push(i); result.set(key, list); } });
@@ -31,8 +33,8 @@ function orderedAnchors(pairs: readonly CellPair[]): CellPair[] {
 export function alignCells(base: readonly SourceCell[], current: readonly SourceCell[], sessions = new Map<string, number>()): Alignment {
   const deadline = performance.now() + 50;
   let budgetExceeded = false;
-  if (base.length + current.length > 4000 || base.length > 2000 || current.length > 2000 ||
-    [...base, ...current].reduce((n, c) => n + c.source.length, 0) > 16_000_000) {
+  if (base.length > MAX_NOTEBOOK_CELLS || current.length > MAX_NOTEBOOK_CELLS ||
+    [...base, ...current].reduce((n, c) => n + c.source.length, 0) > MAX_NOTEBOOK_CHARS) {
     return { pairs: [], added: [], deleted: [], uncertainCurrent: current.map((_, i) => i), uncertainBase: base.map((_, i) => i), complete: false, reason: 'Notebook size limit' };
   }
   const pairs: CellPair[] = [];
@@ -50,8 +52,18 @@ export function alignCells(base: readonly SourceCell[], current: readonly Source
     if (indices.length === 1 && other?.length === 1) match(indices[0]!, other[0]!, 'id');
   }
   current.forEach((cell, i) => { const b = cell.session ? sessions.get(cell.session) : undefined; if (b !== undefined) match(b, i, 'session'); });
-  const key = (c: SourceCell) => c.limited ? `${c.kind}:limited:${c.session ?? c.id ?? ''}` : `${c.kind}:${createHash('sha256').update(c.source).digest('hex')}`;
-  const bk = base.map(key); const ck = current.map(key);
+  let hashedChars = 0;
+  const key = (cell: SourceCell, used: boolean): string | undefined => {
+    if (used || cell.limited) return undefined;
+    const cached = hashes.get(cell);
+    if (cached?.source === cell.source && cached.kind === cell.kind) return cached.key;
+    hashedChars += cell.source.length;
+    const key = `${cell.kind}:${createHash('sha256').update(cell.source).digest('hex')}`;
+    hashes.set(cell, { source: cell.source, kind: cell.kind, key });
+    return key;
+  };
+  const bk = base.map((cell, i) => key(cell, usedBase.has(i)));
+  const ck = current.map((cell, i) => key(cell, usedCurrent.has(i)));
   const bg = groups(bk); const cg = groups(ck);
   for (const [hash, indices] of bg) {
     const other = cg.get(hash);
@@ -82,22 +94,31 @@ export function alignCells(base: readonly SourceCell[], current: readonly Source
       }
     }
   }
-  const remainingBase = base.map((_, i) => i).filter(i => !usedBase.has(i));
-  const remainingCurrent = current.map((_, i) => i).filter(i => !usedCurrent.has(i));
-  // Only small residual regions are scored. Reciprocal best matches need a clear margin.
-  if (remainingBase.length <= 12 && remainingCurrent.length <= 12) {
+  // Compare only bounded residual regions between reliable order anchors. A region
+  // must finish all compatible comparisons before any similarity pair is trusted.
+  const similarityDeadline = Math.min(deadline, performance.now() + 30);
+  const residualAnchors = orderedAnchors(pairs.sort((a, b) => a.current - b.current));
+  const residualBounds = [{ base: -1, current: -1 }, ...residualAnchors, { base: base.length, current: current.length }];
+  for (let k = 1; k < residualBounds.length; k++) {
+    const left = residualBounds[k - 1]!; const right = residualBounds[k]!;
+    const bs: number[] = []; const cs: number[] = [];
+    for (let i = left.base + 1; i < right.base; i++) if (!usedBase.has(i)) bs.push(i);
+    for (let i = left.current + 1; i < right.current; i++) if (!usedCurrent.has(i)) cs.push(i);
+    if (!bs.length || !cs.length || bs.length > 12 || cs.length > 12) continue;
     const scores: { b: number; c: number; score: number }[] = [];
-    const similarityDeadline = Math.min(deadline, performance.now() + 30);
-    for (const b of remainingBase) for (const c of remainingCurrent) {
-      if (performance.now() > similarityDeadline) { budgetExceeded = true; continue; }
+    let evaluated = true;
+    for (const b of bs) for (const c of cs) {
       if (!compatible(b, c)) continue;
+      if (performance.now() > similarityDeadline) { budgetExceeded = true; evaluated = false; break; }
       const before = base[b]!.source; const after = current[c]!.source;
-      if (!before || !after || before.length + after.length > 8000) continue;
+      if (!before || !after) { scores.push({ b, c, score: 0 }); continue; }
+      if (before.length + after.length > 8000) { evaluated = false; continue; }
       const changes = diffChars(before, after, { timeout: 2, maxEditLength: 1000 });
-      if (!changes) continue;
+      if (!changes) { evaluated = false; budgetExceeded = true; continue; }
       const equal = changes.filter(change => !change.added && !change.removed).reduce((sum, change) => sum + change.count, 0);
-      scores.push({ b, c, score: 2 * equal / (before.length + after.length) });
+      scores.push({ b, c, score: 2 * equal / (Array.from(before).length + Array.from(after).length) });
     }
+    if (!evaluated) continue;
     for (const candidate of scores.sort((a, b) => b.score - a.score || a.c - b.c || a.b - b.b)) {
       if (candidate.score < 0.6) continue;
       const rivals = scores.filter(s => s !== candidate && (s.b === candidate.b || s.c === candidate.c));
@@ -133,6 +154,6 @@ export function alignCells(base: readonly SourceCell[], current: readonly Source
   for (const b of unmatchedB) {
     (hasCandidate(base[b]!, currentCandidates) ? uncertainBase : deleted).push(b);
   }
-  return { pairs, added, deleted, uncertainCurrent, uncertainBase, complete: !budgetExceeded && !uncertainCurrent.length && !uncertainBase.length,
+  return { pairs, added, deleted, uncertainCurrent, uncertainBase, hashedChars, complete: !budgetExceeded && !uncertainCurrent.length && !uncertainBase.length,
     reason: budgetExceeded ? 'Cell alignment computation limit' : undefined };
 }

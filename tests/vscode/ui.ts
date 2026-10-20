@@ -6,17 +6,23 @@ import { setup, sleep, waitFor, replace } from './support';
 import { record } from '../../src/normalize';
 
 export async function run() {
-  const { root, uri, notebook, editor, api, extensionId } = await setup();
+  const { root, repo, uri, notebook, editor, api, extensionId } = await setup();
   const controller = vscode.notebooks.createNotebookController('ngg-test-kernel', 'jupyter-notebook', 'NGG Test Kernel');
   controller.supportedLanguages = ['python'];
   controller.updateNotebookAffinity(notebook, vscode.NotebookControllerAffinity.Preferred);
   const first = notebook.cellAt(0);
   const source = first.document.getText();
+  let selectionEvents = 0;
+  const quickDiffProbe = { fileRequests: 0, cellRequests: 0, originalReads: 0 };
+  const probeResources: vscode.Disposable[] = [];
+  const selectionListener = vscode.window.onDidChangeTextEditorSelection(event => {
+    if (event.textEditor.document.uri.toString() === first.document.uri.toString()) selectionEvents++;
+  });
   await vscode.commands.executeCommand('workbench.action.closeSidebar');
   const getState = () => ({ diagnostics: api.snapshot(), dirty: notebook.isDirty,
     visible: vscode.window.visibleTextEditors.map(e => e.document.uri.toString()),
     notebookEditors: vscode.window.visibleNotebookEditors.length, baselineRestored: first.document.getText() === source,
-    activeCell: vscode.window.activeTextEditor?.document.uri.toString(), focused: vscode.window.state.focused });
+    selectionEvents, quickDiffProbe, activeCell: vscode.window.activeTextEditor?.document.uri.toString(), focused: vscode.window.state.focused });
   await writeFile(path.join(root, '.tmp/ui-ready.json'), JSON.stringify(getState()));
   let lastRequest = 0;
   try {
@@ -59,6 +65,8 @@ export async function run() {
           case 'breakpoint':
             await replace(first, source.replace('Notebook 0', 'Breakpoint'));
             vscode.debug.addBreakpoints([new vscode.SourceBreakpoint(new vscode.Location(first.document.uri, new vscode.Position(0, 0)))]); break;
+          case 'clear-probe-breakpoints': vscode.debug.removeBreakpoints([...vscode.debug.breakpoints]); break;
+          case 'delete-last-line': await replace(first, 'name = \"Notebook 0\"\ncount = 3'); break;
           case 'clear-source': await replace(first, ''); break;
           case 'restore-source': await replace(first, source); break;
           case 'markdown': {
@@ -71,6 +79,31 @@ export async function run() {
             await replace(notebook.cellAt(1), '# Edited Markdown\nMarkdown source is compared too.'); break;
           }
           case 'markdown-render': await vscode.commands.executeCommand('notebook.quitEditAllCells'); break;
+          case 'quickdiff-file': {
+            // Positive control for the stable SCM API, independent of our renderer.
+            const file = vscode.Uri.file(path.join(repo, 'quick-diff-probe.py'));
+            await writeFile(file.fsPath, source.replace('Notebook 0', 'Native Quick Diff').replace('count = 3\n', ''));
+            const original = vscode.Uri.parse('ngg-quickdiff-probe:/original.py');
+            const scm = vscode.scm.createSourceControl('ngg-quickdiff-probe', 'Native Quick Diff Probe');
+            probeResources.push(scm, vscode.workspace.registerTextDocumentContentProvider(original.scheme, {
+              provideTextDocumentContent: () => { quickDiffProbe.originalReads++; return source; },
+            }));
+            scm.quickDiffProvider = { provideOriginalResource: resource => {
+              if (resource.toString() === file.toString()) { quickDiffProbe.fileRequests++; return original; }
+              if (resource.toString() === first.document.uri.toString()) { quickDiffProbe.cellRequests++; return original; }
+              return undefined;
+            } };
+            await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(file), vscode.ViewColumn.One);
+            await waitFor(() => quickDiffProbe.fileRequests > 0 && quickDiffProbe.originalReads > 0, 'native Quick Diff positive control');
+            break;
+          }
+          case 'quickdiff-cell':
+            await replace(first, source.replace('Notebook 0', 'Native Quick Diff').replace('count = 3\n', ''));
+            await vscode.window.showNotebookDocument(notebook, { viewColumn: vscode.ViewColumn.One, selections: [new vscode.NotebookRange(0, 1)] });
+            await vscode.commands.executeCommand('notebook.cell.edit');
+            await waitFor(() => vscode.window.activeTextEditor?.document.uri.toString() === first.document.uri.toString(), 'native Quick Diff Cell focus');
+            await vscode.commands.executeCommand('editor.action.dirtydiff.next');
+            break;
           case 'finish':
             await writeFile(path.join(root, '.tmp/ui-response.json'), JSON.stringify({ id: request.id, ...getState() })); return;
           default: throw new Error('Unknown UI fixture request');
@@ -84,5 +117,5 @@ export async function run() {
       }
     }
     throw new Error('UI driver timed out');
-  } finally { controller.dispose(); }
+  } finally { for (const resource of probeResources) resource.dispose(); selectionListener.dispose(); controller.dispose(); }
 }

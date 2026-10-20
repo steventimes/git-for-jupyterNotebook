@@ -1,9 +1,12 @@
-import { alignCells, Alignment } from './alignment';
+import { alignCells, Alignment, CellPair } from './alignment';
 import { Baseline } from './gitReader';
 import { lineDiff, LineDiff } from './lineDiff';
 import { SourceCell } from './normalize';
 
-export interface CellAnalysis { current: number; base?: number; status: 'added' | 'modified' | 'unchanged' | 'uncertain'; moved: boolean; diff: LineDiff }
+export interface CellAnalysis { current: number; base?: number; evidence?: CellPair['reason']; status: 'added' | 'modified' | 'unchanged' | 'uncertain'; moved: boolean; diff: LineDiff }
+export interface CellSnapshot {
+  uri: string; version: number; generation: number; baseline: string; analysis: CellAnalysis;
+}
 export interface Analysis {
   state: 'ready' | 'incomplete' | 'error'; reason?: string;
   alignment?: Alignment; cells: CellAnalysis[]; computed: number; elapsedMs: number;
@@ -47,7 +50,7 @@ export class Analyzer {
       // Do not permanently cache a time-budget failure; Refresh may finish it.
       if (diff.state === 'ready') nextDiffs.set(key, { before, after: cell.source, diff });
       if (pair && cell.session) nextSessions.set(cell.session, pair.base);
-      cells.push({ current: i, base: pair?.base, moved: pair?.moved ?? false, diff,
+      cells.push({ current: i, base: pair?.base, evidence: pair?.reason, moved: pair?.moved ?? false, diff,
         status: diff.state === 'incomplete' ? 'uncertain' : added.has(i) ? 'added' : diff.changes.length ? 'modified' : 'unchanged' });
       if (i % 10 === 9) await new Promise<void>(resolve => setImmediate(resolve));
     }

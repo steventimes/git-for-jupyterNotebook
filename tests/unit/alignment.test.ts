@@ -75,3 +75,21 @@ test('distinct replacement IDs stay added/deleted despite identical source, up t
   assert.equal(result.added.length, 2000);
   assert.equal(result.deleted.length, 2000);
 });
+
+test('non-BMP similarity uses the same character units as diffChars', () => {
+  const result = alignCells([c('𝑥'.repeat(10) + ' = 1')], [c('𝑥'.repeat(10) + ' = 2')]);
+  assert.equal(result.pairs[0]?.reason, 'similarity');
+});
+test('thirteen separate edited regions remain bounded by their exact anchors', () => {
+  const base = Array.from({ length: 13 }, (_, i) => [c(`value_${i} = 100`), c(`anchor ${i}`)]).flat();
+  const current = base.map((cell, i) => i % 2 ? cell : c(cell.source.replace('100', '200')));
+  const result = alignCells(base, current);
+  assert.equal(result.complete, true);
+  assert.equal(result.pairs.length, 26);
+});
+test('an unevaluated expensive competitor prevents similarity admission', () => {
+  const result = alignCells([c('a'.repeat(1800) + '1'), c('b'.repeat(1800))],
+    [c('a'.repeat(1800) + '2'), c('c'.repeat(1800))]);
+  assert.equal(result.pairs.length, 0);
+  assert.equal(result.complete, false);
+});

@@ -1,4 +1,4 @@
-/* Subset of microsoft/vscode 1.141.0 extensions/git/src/api/git.d.ts.
+/* Subset of microsoft/vscode 1.130.0 extensions/git/src/api/git.d.ts.
  * Copyright Microsoft Corporation. MIT, see VSCODE-LICENSE.txt.
  * Only the public members used here; unrelated proposed SCM types are omitted.
  */

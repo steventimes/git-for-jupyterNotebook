@@ -35,14 +35,16 @@ test('replacement pairs common count as modified, surplus as added or deleted', 
   assert.deepEqual(lineDiff('a\n', 'x\ny\n').changes.map(c => c.kind), ['modified', 'added']);
   assert.deepEqual(lineDiff('a\nb\n', 'x\n').changes.map(c => c.kind), ['modified', 'deleted']);
 });
-test('deleted anchors are valid at beginning, end and after clearing the cell', () => {
-  for (const [before, after] of [['a\nb\n', 'b\n'], ['a\nb', 'a\n'], ['a\nb\n', '']]) {
-    assert.ok(before !== undefined && after !== undefined);
-    const result = lineDiff(before, after);
-    for (const change of result.changes.filter(c => c.kind === 'deleted')) {
-      assert.ok(change.anchor >= 0 && change.anchor < after.split('\n').length);
-      assert.ok(change.base.end > change.base.start);
-    }
+test('deletion anchors preserve the boundary at start, middle, EOF and empty source', () => {
+  const cases: [string, string, number, 'before' | 'after'][] = [
+    ['a\nb\n', 'b\n', 0, 'before'], ['a\nb\nc', 'a\nc', 1, 'before'],
+    ['a\nb', 'a', 0, 'after'], ['a\nb\n', 'a\n', 1, 'before'], ['a\nb\n', '', 0, 'before'],
+  ];
+  for (const [before, after, anchor, side] of cases) {
+    const change = lineDiff(before, after).changes.find(c => c.kind === 'deleted');
+    assert.ok(change); assert.equal(change.anchor, anchor); assert.equal(change.anchorSide, side);
+    assert.ok(change.anchor < after.split('\n').length);
+    assert.ok(change.base.end > change.base.start);
   }
 });
 test('empty source, final newline, CRLF, indentation and Unicode', () => {
@@ -55,4 +57,13 @@ test('empty source, final newline, CRLF, indentation and Unicode', () => {
 test('oversized and expensive input is incomplete, never reported unchanged', () => {
   assert.equal(lineDiff('a', 'x'.repeat(600_000)).state, 'incomplete');
   assert.equal(lineDiff('a\n'.repeat(2001), 'b\n'.repeat(2001)).state, 'incomplete');
+});
+
+test('pure additions and deletions bypass the edit search limit but respect size limits', () => {
+  const source = 'line\n'.repeat(5000);
+  const added = lineDiff('', source); const deleted = lineDiff(source, '');
+  assert.equal(added.state, 'ready'); assert.equal(deleted.state, 'ready');
+  assert.deepEqual(added.changes.map(c => [c.kind, c.current.start, c.current.end]), [['added', 0, 5000]]);
+  assert.deepEqual(deleted.changes.map(c => [c.kind, c.base.end, c.anchor]), [['deleted', 5000, 0]]);
+  assert.equal(lineDiff('', 'line\n'.repeat(20001)).state, 'incomplete');
 });

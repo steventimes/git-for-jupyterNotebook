@@ -1,8 +1,8 @@
 {
-  "vscode": "1.141.0",
-  "commit": "2a59476c9bfcb90b3ddc372c36762471b7dfad1c",
-  "stableApi": "https://update.code.visualstudio.com/api/update/linux-x64/stable/latest",
-  "vscodeTypesSource": "https://raw.githubusercontent.com/microsoft/vscode/1.141.0/src/vscode-dts/vscode.d.ts",
-  "vscodeTypesSha256": "a4321528e86dcdcb8450287f2a263055c46a622119cdb186de85ac3b19ce9608",
-  "linuxArchiveSha256": "d77d588f0454cbaaa71e723497de4160d15b95fba4988abe177b1432e6bd570a"
+  "vscode": "1.130.0",
+  "commit": "1b6a188127eeaf9194f945eb6eb89a657e93c54c",
+  "vscodeTypesSource": "https://raw.githubusercontent.com/microsoft/vscode/1.130.0/src/vscode-dts/vscode.d.ts",
+  "vscodeTypesSha256": "ee11e767c8ab76f6c0de8dc88222796147a6f0bc82f3a1ec644e41b39b52f2cd",
+  "gitApiSource": "https://raw.githubusercontent.com/microsoft/vscode/1.130.0/extensions/git/src/api/git.d.ts",
+  "gitApiSha256": "974b34bcb7a1dcab9f65349943daa98c1c299a2406b2665fdd48010f39439a8b"
 }

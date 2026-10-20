@@ -7,6 +7,7 @@ export interface LineChange {
   base: LineRange;
   current: LineRange;
   anchor: number;
+  anchorSide?: 'before' | 'after';
   removed: string;
 }
 export interface LineDiff {
@@ -21,6 +22,11 @@ export function lineDiff(before: string, after: string): LineDiff {
   if (before === after) return { state: 'ready', changes: [] };
   if (before.length + after.length > MAX_CELL_CHARS || before.split('\n').length + after.split('\n').length > 20_000) {
     return { state: 'incomplete', changes: [], reason: 'Cell size limit' };
+  }
+  if (!before || !after) {
+    const lines = (text: string) => text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0;
+    return { state: 'ready', changes: [{ kind: before ? 'deleted' : 'added',
+      base: { start: 0, end: lines(before) }, current: { start: 0, end: lines(after) }, anchor: 0, anchorSide: before ? 'before' : undefined, removed: before }] };
   }
   const chunks = diffLines(before, after, { timeout: 20, maxEditLength: 2000 });
   if (!chunks) return { state: 'incomplete', changes: [], reason: 'Diff computation limit' };
@@ -45,7 +51,7 @@ export function lineDiff(before: string, after: string): LineDiff {
     const removedLines = removed?.value.match(/[^\n]*\n|[^\n]+$/g) ?? [];
     const push = (kind: LineChange['kind'], b: number, bn: number, c: number, cn: number, text: string) => {
       changes.push({ kind, base: { start: b, end: b + bn }, current: { start: c, end: c + cn },
-        anchor: Math.max(0, Math.min(lastLine, c)), removed: text });
+        anchor: Math.max(0, Math.min(lastLine, c)), anchorSide: kind === 'deleted' ? (c > lastLine ? 'after' : 'before') : undefined, removed: text });
     };
     if (paired) push('modified', base, paired, current, paired, removedLines.slice(0, paired).join(''));
     if (m > paired) push('added', base + paired, 0, current + paired, m - paired, '');

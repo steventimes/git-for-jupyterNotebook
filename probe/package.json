@@ -2,8 +2,14 @@
   "name": "notebook-git-gutter-probe",
   "publisher": "StevenYang0316-5274",
   "version": "0.0.1",
-  "engines": { "vscode": "^1.141.0" },
+  "engines": {
+    "vscode": "^1.130.0"
+  },
   "main": "../out/probe/extension.js",
-  "activationEvents": ["onNotebook:jupyter-notebook"],
-  "extensionKind": ["workspace"]
+  "activationEvents": [
+    "onNotebook:jupyter-notebook"
+  ],
+  "extensionKind": [
+    "workspace"
+  ]
 }
