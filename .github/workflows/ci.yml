@@ -1,9 +1,56 @@
 name: Validate extension
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && github.run_id) || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
+  quality:
+    outputs:
+      package-id: ${{ steps.package.outputs.artifact-id }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Build the VSIX once
+        run: npm run package
+      - run: node --test --test-isolation=none out/tests/unit/*.test.js out/tests/integration/*.test.js
+      - run: node out/tests/performance.js
+      - id: package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension-package-linux-${{ github.sha }}-${{ github.run_attempt }}
+          retention-days: 14
+          path: |
+            output/packages/*.vsix
+            output/packages/*.vsix.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: extension-quality-linux-${{ github.sha }}-${{ github.run_attempt }}
+          retention-days: 14
+          path: output/performance.json
+          if-no-files-found: warn
   linux:
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
@@ -13,34 +60,36 @@ jobs:
       VSCODE_VERSION: ${{ matrix.vscode }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24.18.0
+          node-version: 24.22.2
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm test
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.quality.outputs.package-id }}
+          path: output/packages
+          merge-multiple: true
       - name: Install isolated desktop test dependencies
-        run: sudo apt-get update && sudo apt-get install -y xvfb openbox
-      - run: npm run test:host
-      - run: npm run test:ui
-      - run: npm run benchmark
-      - run: npm run package
-      - name: Install and test the same VSIX
-        run: npm run test:vsix
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        run: sudo apt-get update && sudo apt-get install -y xvfb openbox fonts-noto-cjk fonts-noto-color-emoji
+      - run: npm run compile
+      - name: Install and test the shared VSIX
+        run: |
+          vsix_path="$(node -p "const manifest = require('./package.json'); 'output/packages/' + manifest.name + '-' + manifest.version + '.vsix'")"
+          node scripts/testing/run.cjs vsix "$vsix_path"
+          node scripts/testing/run.cjs ui "$vsix_path"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: extension-linux-validation-${{ matrix.vscode }}
+          name: extension-linux-validation-${{ matrix.vscode }}-${{ github.sha }}-${{ github.run_attempt }}
+          retention-days: 14
           path: |
-            *.vsix
             output/release.json
-            output/performance.json
+            output/ui-release.json
             output/playwright/product/**
-            .tmp/host-results.json
             .tmp/vsix-host-results.json
+            .tmp/ui-live.json
           if-no-files-found: warn

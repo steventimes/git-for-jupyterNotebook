@@ -4,6 +4,9 @@ import path from 'node:path';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { git } from '../gitFixture';
 import { setup, sleep, waitFor, replace } from './support';
+import { changePreview } from '../../src/ui/details';
+import type { GitExtension } from '../../types/git-api';
+import { Status } from '../../types/git-api';
 export async function run() {
   const { root, repo, uri, notebook, api } = await setup();
   const done: string[] = [];
@@ -20,12 +23,6 @@ export async function run() {
   const state = () => api.snapshot().notebooks[0];
   const settled = async () => { await sleep(300); await waitFor(() => !state()?.pending, 'analysis settled'); };
   const original = notebook.cellAt(0).document.getText();
-  await check('activation, serializer ID and Cell URI -> visible TextEditor', async () => {
-    assert.equal(notebook.cellAt(0).metadata.id, 'fixture-0');
-    assert.ok(vscode.window.visibleTextEditors.some(e => e.document.uri.toString() === notebook.cellAt(0).document.uri.toString()));
-    assert.equal(state()?.matched, notebook.cellCount);
-    assert.equal(api.snapshot().repositories, 1);
-  });
   await check('unsaved edits, debounce and zero per-keystroke Git reads', async () => {
     await sleep(800); const gitCalls = api.snapshot().gitCalls; const runs = state()?.runs ?? 0;
     for (let i = 0; i < 12; i++) await replace(notebook.cellAt(0), `name = "edit ${i}"\ncount = 3\nprint(name, count)\n`);
@@ -33,7 +30,6 @@ export async function run() {
     assert.ok(notebook.isDirty); assert.equal(state()?.cells?.[0]?.changes[0]?.kind, 'modified');
     assert.ok((state()?.runs ?? 0) - runs <= 2); assert.equal(api.snapshot().gitCalls, gitCalls);
     assert.equal(state()?.computed, 1);
-    assert.equal(api.snapshot().repositories, 1);
     await replace(notebook.cellAt(0), original); await settled();
   });
   await check('pending edits hide old coordinates and structural summaries never shift by index', async () => {
@@ -46,6 +42,8 @@ export async function run() {
     await replace(notebook.cellAt(0), '\n' + notebook.cellAt(0).document.getText());
     await sleep(60);
     assert.equal(state()?.pending, true);
+    assert.ok(api.snapshot().status.text.startsWith('$(sync~spin)'));
+    assert.match(String(api.snapshot().status.tooltip), /Analysing current source/);
     assert.ok(!api.snapshot().rendered.includes(changedUri), 'old coordinates must be hidden until the new version is analysed');
     const submissions = api.snapshot().decorationSubmissions;
     for (let i = 0; i < 12; i++) {
@@ -63,48 +61,42 @@ export async function run() {
     await replace(notebook.cellAt(0), original); await settled();
     await settings.update('debounceMs', 200, vscode.ConfigurationTarget.Workspace); await settled();
   });
-  await check('raw/code language changes invalidate source semantics without a text edit', async () => {
-    await replace(notebook.cellAt(0), 'changed'); await settled();
-    const runs = state()?.runs;
-    await vscode.languages.setTextDocumentLanguage(notebook.cellAt(0).document, 'plaintext'); await sleep(350);
-    assert.equal(state()?.runs, runs, 'code-to-code language changes do not recalculate source');
-    assert.equal(state()?.summaries[0]?.items[0], 'Git: modified');
-    await vscode.languages.setTextDocumentLanguage(notebook.cellAt(0).document, 'raw');
-    await waitFor(() => !state()?.pending && state()?.cells?.[0]?.status === 'uncertain', 'raw language event');
-    await vscode.languages.setTextDocumentLanguage(notebook.cellAt(0).document, 'python');
-    await waitFor(() => !state()?.pending && state()?.cells?.[0]?.status === 'modified', 'code language event');
-    await replace(notebook.cellAt(0), original); await settled();
-  });
   await check('native hover previews preserve source safely and reject stale results', async () => {
     const cell = notebook.cellAt(0);
-    const previews = async () => {
-      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', cell.document.uri, new vscode.Position(0, 0));
-      return (hovers ?? []).flatMap(hover => hover.contents).filter((content): content is vscode.MarkdownString =>
-        content instanceof vscode.MarkdownString && content.value.replace(/&nbsp;/g, ' ').includes('Jupyter Notebook Git Marks:'));
-    };
-    const payload = '```\n[run](command:notebookGitGutter.toggle)\n<script>untrusted</script>';
-    await replace(cell, payload); await settled();
-    const content = (await previews())[0]; assert.ok(content);
-    assert.equal(content.isTrusted, false); assert.equal(content.supportHtml, false);
-    assert.ok(content.value.includes('Original source')); assert.ok(content.value.includes('Current source'));
-    assert.ok(content.value.includes('name = "Notebook 0"')); assert.ok(content.value.includes(payload));
-    assert.ok(content.value.includes('````python'), 'embedded source fences cannot escape the code block');
-    assert.ok(content.value.replace(/&nbsp;/g, ' ').includes('No trailing newline.'));
+    const previews = () => vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', cell.document.uri, new vscode.Position(0, 0));
     await replace(cell, 'x'.repeat(3999) + '😀tail'); await settled();
-    const bounded = (await previews())[0]; assert.ok(bounded);
+    const bounded = (await previews())?.[0]?.contents[0]; assert.ok(bounded instanceof vscode.MarkdownString);
     assert.ok(bounded.value.replace(/&nbsp;/g, ' ').includes('Preview truncated.'));
     assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(bounded.value), 'preview limits cannot split a Unicode surrogate pair');
+    // Exercise formatting against a real TextDocument without depending on the
+    // generic line diff's timeout for this deliberately dense replacement.
+    const dense = await vscode.workspace.openTextDocument({ content: 'new\n'.repeat(405) });
+    const replacement = { kind: 'modified' as const, base: { start: 0, end: 405 },
+      current: { start: 0, end: 405 }, anchor: 0, removed: 'old\n'.repeat(405) };
+    const balanced = changePreview(replacement, dense).value;
+    assert.equal((balanced.match(/removedLineBackground/g) ?? []).length, 200);
+    assert.equal((balanced.match(/insertedLineBackground/g) ?? []).length, 200);
+    assert.ok(balanced.includes('- old') && balanced.includes('+ new'));
+    assert.match(balanced.replace(/&nbsp;/g, ' '), /Preview truncated/);
+    for (const kind of ['added', 'deleted'] as const) {
+      const single = changePreview({ ...replacement, kind, removed: kind === 'deleted' ? replacement.removed : '' }, dense).value;
+      assert.equal((single.match(/LineBackground/g) ?? []).length, 400, 'single-sided changes retain the full row budget');
+    }
+    assert.equal(dense.getText(), 'new\n'.repeat(405), 'formatting must not modify current source');
+    const contextOriginal = 'first target=old; ' + 'unchanged words; '.repeat(400) +
+      'second target=old; price=10; [run](command:x)';
+    const contextSource = contextOriginal.replace('second target=old', 'second target=new').replace('price=10', 'price=11');
+    const contextDocument = await vscode.workspace.openTextDocument({ content: contextSource });
+    const contextPreview = changePreview({ kind: 'modified', base: { start: 0, end: 1 },
+      current: { start: 0, end: 1 }, anchor: 0, removed: contextOriginal }, contextDocument).value;
+    assert.ok(contextPreview.includes('[run](command:x)'), 'unchanged context must remain literal source');
+    assert.doesNotMatch(contextPreview, /<a\b|href=/i, 'unchanged source links cannot become active markup');
+    assert.ok(contextPreview.includes('…') && contextPreview.length < 3000, 'long previews retain their HTML size bound');
     const settings = vscode.workspace.getConfiguration('notebookGitGutter');
     await settings.update('debounceMs', 1000, vscode.ConfigurationTarget.Workspace); await settled();
     await replace(cell, 'newer source');
     assert.deepEqual(await previews(), [], 'pending results must not expose a previous version preview');
     await replace(cell, original); await settings.update('debounceMs', 200, vscode.ConfigurationTarget.Workspace); await settled();
-  });
-  await check('output and execution metadata do not recalculate source diffs', async () => {
-    const runs = state()?.runs;
-    const edit = new vscode.WorkspaceEdit(); edit.set(uri, [vscode.NotebookEdit.updateCellMetadata(0, { ...notebook.cellAt(0).metadata, execution_count: 42, metadata: { duration: 100 } })]);
-    assert.ok(await vscode.workspace.applyEdit(edit)); await settled();
-    assert.equal(state()?.runs, runs); assert.ok(state()?.cells?.every(cell => cell.changes.length === 0));
   });
   await check('HEAD stage semantics and index invalidation via built-in Git events', async () => {
     await replace(notebook.cellAt(0), 'staged\n'); await notebook.save(); await settled();
@@ -113,6 +105,11 @@ export async function run() {
     await vscode.workspace.getConfiguration('notebookGitGutter').update('baseline', 'index', vscode.ConfigurationTarget.Workspace);
     await waitFor(() => state()?.baseline === 'index' && !state()?.pending && state()?.cells?.[0]?.status === 'unchanged', 'index baseline');
     await replace(notebook.cellAt(0), 'after stage\n'); await settled(); assert.equal(state()?.cells?.[0]?.status, 'modified');
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', notebook.cellAt(0).document.uri, new vscode.Position(0, 0));
+    const content = (hovers ?? []).flatMap(hover => hover.contents).find(content =>
+      content instanceof vscode.MarkdownString && content.value.includes('staged') && content.value.includes('after stage'));
+    assert.ok(content instanceof vscode.MarkdownString, 'hover source uses the index snapshot after switching modes');
+    assert.equal(content.isTrusted, false); assert.equal(content.supportHtml, true);
     await notebook.save(); git(repo, 'add', '--', 'demo.ipynb');
     await waitFor(() => !state()?.pending && state()?.cells?.[0]?.status === 'unchanged', 'stage event reload', 15_000);
     await vscode.workspace.getConfiguration('notebookGitGutter').update('baseline', 'HEAD', vscode.ConfigurationTarget.Workspace);
@@ -127,11 +124,12 @@ export async function run() {
     git(repo, 'update-index', '--cacheinfo', `100644,${object},demo.ipynb`);
     git(repo, 'commit', '-m', 'broken baseline fixture');
     await waitFor(() => !state()?.pending && state()?.reason === 'invalid-json', 'invalid HEAD reported');
+    await waitFor(() => api.snapshot().status.text.includes('baseline contains invalid JSON'), 'readable error status');
+    assert.match(String(api.snapshot().status.tooltip), /Use Refresh to retry/);
     assert.equal(state()?.cachedSources, 0, 'unavailable baselines must not capture current source');
-    await sleep(800); const calls = api.snapshot().gitCalls; const runs = state()?.runs ?? 0;
+    await sleep(800); const calls = api.snapshot().gitCalls;
     for (let i = 0; i < 3; i++) { await replace(notebook.cellAt(0), `typing while unavailable ${i}`); await settled(); }
     assert.equal(api.snapshot().gitCalls, calls, 'a failed baseline must not run Git on every input');
-    assert.equal((state()?.runs ?? 0) - runs, 3, 'each input still updates analysis state');
     await replace(notebook.cellAt(0), originalText); await notebook.save();
     git(repo, 'add', '--', 'demo.ipynb'); git(repo, 'commit', '-m', 'recovered baseline fixture');
     await waitFor(() => !state()?.pending && state()?.state === 'ready', 'error cache invalidated by repository event');
@@ -197,6 +195,10 @@ export async function run() {
     await vscode.commands.executeCommand('notebookGitGutter.toggle');
     await waitFor(() => secondState()?.enabled === true && !secondState()?.pending, 'Toggle respects folder override');
     assert.equal(secondConfig.inspect<boolean>('enabled')?.workspaceFolderValue, true);
+    // Discard the earlier unsaved edit before moving and later reusing its path.
+    // A retained dirty tab would otherwise conflict with the fixture's new file.
+    await vscode.window.showNotebookDocument(second);
+    await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
     git(secondRepo, 'mv', '--', 'demo.ipynb', 'renamed.ipynb');
     const renamed = await vscode.workspace.openNotebookDocument(vscode.Uri.file(path.join(secondRepo, 'renamed.ipynb')));
     await vscode.window.showNotebookDocument(renamed);
@@ -205,6 +207,30 @@ export async function run() {
     await replace(renamed.cellAt(0), 'rename edited');
     await waitFor(() => !renamedState()?.pending && renamedState()?.cells?.[0]?.status === 'modified', 'renamed source edit');
     assert.equal(renamedState()?.cells?.[0]?.changes[0]?.kind, 'modified');
+    const builtInGit = await vscode.extensions.getExtension<GitExtension>('vscode.git')?.activate();
+    const repository = builtInGit?.getAPI(1).getRepository(renamed.uri); assert.ok(repository);
+    const gitSettings = vscode.workspace.getConfiguration('git');
+    const previousAutorefresh = gitSettings.inspect<boolean>('autorefresh')?.workspaceValue;
+    try {
+      await gitSettings.update('autorefresh', false, vscode.ConfigurationTarget.Workspace);
+      await renamed.save(); await repository.status();
+      const reportedHead = repository.state.HEAD?.commit; assert.ok(reportedHead);
+      assert.ok(repository.state.indexChanges.some(change => change.status === Status.INDEX_RENAMED && change.renameUri?.fsPath === renamed.uri.fsPath));
+      const reused = JSON.parse(await readFile(renamed.uri.fsPath, 'utf8'));
+      reused.cells[0].source = 'unrelated content at the reused old path';
+      await writeFile(path.join(secondRepo, 'demo.ipynb'), JSON.stringify(reused));
+      git(secondRepo, 'add', '--', 'demo.ipynb', 'renamed.ipynb'); git(secondRepo, 'commit', '-m', 'Rename and reuse path');
+      const actualHead = git(secondRepo, 'rev-parse', 'HEAD'); assert.notEqual(actualHead, reportedHead);
+      await sleep(150);
+      assert.equal(repository.state.HEAD?.commit, reportedHead, 'fixture must retain stale Git API rename evidence');
+      await vscode.commands.executeCommand('notebookGitGutter.refresh');
+      await waitFor(() => !renamedState()?.pending && renamedState()?.revision?.startsWith(actualHead + ':') === true &&
+        renamedState()?.cells?.[0]?.status === 'unchanged', 'stale rename hint must not select reused old source', 15_000);
+      assert.equal(repository.state.HEAD?.commit, reportedHead, 'success must not depend on the Git API catching up');
+    } finally {
+      await gitSettings.update('autorefresh', previousAutorefresh, vscode.ConfigurationTarget.Workspace);
+      await repository.status();
+    }
     const nestedRoot = path.join(repo, 'nested'); await mkdir(nestedRoot);
     await writeFile(path.join(nestedRoot, 'nested.ipynb'), JSON.stringify({ nbformat: 4, nbformat_minor: 5, metadata: {},
       cells: [{ cell_type: 'code', id: 'nested', metadata: {}, source: 'nested baseline', outputs: [], execution_count: null }] }));

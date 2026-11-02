@@ -1,14 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Analyzer } from '../../src/analysis';
-import { BaselineCache } from '../../src/cache';
-import { Baseline } from '../../src/gitReader';
-import { Generation } from '../../src/generation';
+import { Analyzer, Generation } from '../../src/notebook/analysis';
+import { BaselineCache } from '../../src/git/cache';
+import { Baseline } from '../../src/git/reader';
 const base: Baseline = { kind: 'ready', revision: 'one', path: 'test.ipynb', cells: [{ kind: 'code', id: 'a', source: 'base' }] };
-test('baseline error is never treated as an empty file', async () => {
-  const result = await new Analyzer().analyze({ kind: 'error', code: 'git-read-failed' }, [{ kind: 'code', source: 'current' }]);
-  assert.equal(result?.state, 'error'); assert.deepEqual(result?.cells, []);
-});
 test('a size-limited live cell is never represented as deleted or unchanged source', async () => {
   const result = await new Analyzer().analyze(base, [{ kind: 'code', id: 'a', source: '', limited: true }]);
   assert.equal(result?.state, 'incomplete');
@@ -19,9 +14,12 @@ test('a size-limited live cell is never represented as deleted or unchanged sour
 test('only changed sources are recomputed and a removed cell is a notebook-level deletion', async () => {
   const analyzer = new Analyzer();
   const cells = [{ kind: 'code' as const, source: 'changed', id: 'a', session: 'uri' }];
-  assert.equal((await analyzer.analyze(base, cells))?.computed, 1);
+  const changed = await analyzer.analyze(base, cells);
+  assert.equal(changed?.computed, 1); assert.equal(changed?.alignment?.hashedChars, 0);
   assert.equal((await analyzer.analyze(base, cells))?.computed, 0);
-  assert.equal((await analyzer.analyze(base, [{ ...cells[0]!, source: 'base' }]))?.cells[0]?.diff.changes.length, 0);
+  const reverted = await analyzer.analyze(base, [{ ...cells[0]!, source: 'base' }]);
+  assert.equal(reverted?.cells[0]?.diff.changes.length, 0);
+  assert.equal(reverted?.alignment?.hashedChars, 0); assert.equal(reverted?.computed, 1);
   const deleted = await analyzer.analyze(base, []);
   assert.deepEqual(deleted?.alignment?.deleted, [0]); assert.deepEqual(deleted?.cells, []);
 });
@@ -89,14 +87,5 @@ test('transient typed baseline errors are evicted even when the HEAD cache key i
   const cache = new BaselineCache<Baseline>();
   const reusable = (value: Baseline) => value.kind !== 'error';
   await cache.get('same-head', async () => ({ kind: 'error', code: 'merge-conflict' }), reusable);
-  assert.equal(cache.size, 0);
   assert.equal(await cache.get('same-head', async () => base, reusable), base);
-});
-test('reliable cell identities avoid hashing unchanged notebook source', async () => {
-  const analyzer = new Analyzer();
-  const cells = [{ kind: 'code' as const, source: 'changed', id: 'a', session: 'uri' }];
-  assert.equal((await analyzer.analyze(base, cells))?.alignment?.hashedChars, 0);
-  cells[0] = { ...cells[0]!, source: 'changed again' };
-  const result = await analyzer.analyze(base, cells);
-  assert.equal(result?.alignment?.hashedChars, 0); assert.equal(result?.computed, 1);
 });

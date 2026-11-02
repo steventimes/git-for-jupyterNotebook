@@ -15,6 +15,7 @@ export interface Change {
 }
 export interface Repository {
   readonly rootUri: Uri;
+  status(): Promise<void>;
   readonly state: {
     readonly HEAD: { readonly commit?: string } | undefined;
     readonly mergeChanges: Change[];

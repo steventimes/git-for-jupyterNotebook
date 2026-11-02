@@ -1,6 +1,6 @@
-import { Analyzer } from '../src/analysis';
-import { Baseline } from '../src/gitReader';
-import { SourceCell } from '../src/normalize';
+import { Analyzer } from '../src/notebook/analysis';
+import { Baseline } from '../src/git/reader';
+import { SourceCell } from '../src/notebook/normalize';
 import { cpus, platform, arch } from 'node:os';
 import { mkdir, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';

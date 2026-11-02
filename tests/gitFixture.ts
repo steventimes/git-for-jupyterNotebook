@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { devNull } from 'node:os';
-import { gitEnvironment } from '../src/gitReader';
+import { gitEnvironment } from '../src/git/reader';
 
 // Fixture writes must stay in their own repository even when the parent process was launched by Git.
 export function git(root: string, ...args: string[]): string {

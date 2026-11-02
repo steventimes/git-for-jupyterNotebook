@@ -60,7 +60,7 @@ to use and redistribute that material under the MIT terms. This license does
 not prevent lawful reuse or republication relying on those prior permissions.
 
 Third-party components retain their own licenses, including the diff library
-and the VS Code type definitions. See THIRD_PARTY_NOTICES.md and the relevant
+and the VS Code type definitions. See LICENSES/THIRD_PARTY_NOTICES.md and the relevant
 component notices. This license does not add restrictions to those components.
 It does not restrict independently written software that does not copy
 protected material from this project merely because it has similar features.

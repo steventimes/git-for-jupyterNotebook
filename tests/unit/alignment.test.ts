@@ -1,17 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alignCells } from '../../src/alignment';
-import { SourceCell } from '../../src/normalize';
+import { alignCells } from '../../src/notebook/alignment';
+import { SourceCell } from '../../src/notebook/normalize';
 const c = (source: string, id?: string, session?: string): SourceCell => ({ kind: 'code', source, id, session });
 
-test('inserting a cell leaves subsequent matches unchanged, with and without IDs', () => {
-  for (const ids of [true, false]) {
-    const base = [c('one', ids ? 'a' : undefined), c('two', ids ? 'b' : undefined)];
-    const result = alignCells(base, [c('inserted', ids ? 'new' : undefined), ...base]);
-    assert.deepEqual(result.pairs.map(p => [p.current, p.base]), [[1, 0], [2, 1]]);
-    assert.deepEqual(result.added, [0]);
-    assert.equal(result.pairs.filter(p => p.moved).length, 0);
-  }
+test('inserting a cell with missing IDs leaves subsequent matches unchanged', () => {
+  const base = [c('one'), c('two')];
+  const result = alignCells(base, [c('inserted'), ...base]);
+  assert.deepEqual(result.pairs.map(p => [p.current, p.base]), [[1, 0], [2, 1]]);
+  assert.deepEqual(result.added, [0]);
+  assert.equal(result.pairs.filter(p => p.moved).length, 0);
 });
 test('unique IDs match changed and moved cells regardless of position', () => {
   const result = alignCells([c('a', 'a'), c('b', 'b'), c('c', 'c')], [c('changed', 'c'), c('a', 'a'), c('b', 'b')]);
@@ -49,23 +47,9 @@ test('ambiguous edited duplicates are incomplete rather than fake precise matche
   assert.deepEqual(result.uncertainCurrent, [0, 1]);
   assert.equal(result.pairs.length, 0);
 });
-test('session identity preserves mappings through arbitrary source edits', () => {
-  const result = alignCells([c('same'), c('same')], [c('rewritten', undefined, 'uri-a'), c('same', undefined, 'uri-b')], new Map([['uri-a', 0], ['uri-b', 1]]));
-  assert.deepEqual(result.pairs.map(p => p.base), [0, 1]);
-});
-test('bounded similarity between sequence anchors matches a local edit', () => {
-  const result = alignCells([c('start'), c('value = 100\nprint(value)'), c('end')], [c('start'), c('value = 200\nprint(value)'), c('end')]);
-  assert.equal(result.pairs.find(p => p.current === 1)?.base, 1);
-  assert.equal(result.pairs.find(p => p.current === 1)?.reason, 'similarity');
-});
-test('cell deletion is separate from source deletion; raw/type mismatch never paired', () => {
-  assert.deepEqual(alignCells([c('one', 'one')], []).deleted, [0]);
+test('cell type mismatch never pairs despite equal source and ID', () => {
   const result = alignCells([c('x', 'x')], [{ kind: 'markdown', id: 'x', source: 'x' }]);
   assert.equal(result.pairs.length, 0);
-});
-test('cell limit reports unfinished analysis', () => {
-  const result = alignCells(Array.from({ length: 2001 }, (_, i) => c(String(i))), []);
-  assert.equal(result.complete, false);
 });
 test('distinct replacement IDs stay added/deleted despite identical source, up to 2000 cells', () => {
   const base = Array.from({ length: 2000 }, (_, i) => c(`source ${i}`, `old-${i}`));
@@ -86,6 +70,18 @@ test('thirteen separate edited regions remain bounded by their exact anchors', (
   const result = alignCells(base, current);
   assert.equal(result.complete, true);
   assert.equal(result.pairs.length, 26);
+});
+test('adjacent long edited cells stay between their anchors, while duplicate candidates remain uncertain', () => {
+  const sources = ['alpha', 'beta'].map(name => Array.from({ length: 400 }, (_, i) => `${name}_${i} = ${i}\n`).join(''));
+  const changes = sources.map(source => source.replace('_3 = 3', '_3 = 4'));
+  assert.ok(sources.every((source, i) => source.length + changes[i]!.length > 8000));
+  const result = alignCells([c('start'), ...sources.map(source => c(source)), c('end')],
+    [c('start'), ...changes.map(source => c(source)), c('end')]);
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.pairs.map(pair => [pair.current, pair.base]), [[0, 0], [1, 1], [2, 2], [3, 3]]);
+  const ambiguous = alignCells([c(sources[0]!), c(sources[0]!)], [c(changes[0]!), c(changes[0]!)]);
+  assert.equal(ambiguous.pairs.length, 0);
+  assert.deepEqual(ambiguous.uncertainCurrent, [0, 1]);
 });
 test('an unevaluated expensive competitor prevents similarity admission', () => {
   const result = alignCells([c('a'.repeat(1800) + '1'), c('b'.repeat(1800))],

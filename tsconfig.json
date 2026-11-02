@@ -15,6 +15,6 @@
     "sourceMap": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "probe/**/*.ts", "tests/**/*.ts", "types/**/*.d.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "types/**/*.d.ts"],
   "exclude": ["node_modules", "out", ".tmp"]
 }

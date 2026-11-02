@@ -5,16 +5,13 @@
       "name": "Jupyter Notebook Git Marks",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${workspaceFolder}"],
-      "outFiles": ["${workspaceFolder}/out/src/**/*.js"],
-      "preLaunchTask": "npm: compile"
-    },
-    {
-      "name": "Native Notebook decoration probe",
-      "type": "extensionHost",
-      "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/probe", "${workspaceFolder}/demo/demo.ipynb"],
-      "outFiles": ["${workspaceFolder}/out/probe/**/*.js"],
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${workspaceFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/out/src/**/*.js"
+      ],
       "preLaunchTask": "npm: compile"
     }
   ]

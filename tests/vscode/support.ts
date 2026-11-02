@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { record } from '../../src/normalize';
+import { record } from '../../src/notebook/normalize';
 import type { activate } from '../../src/extension';
 
 type Api = ReturnType<typeof activate>;
@@ -25,6 +25,7 @@ export async function setup() {
   const uri = vscode.Uri.file(path.join(repo, 'demo.ipynb'));
   const notebook = await vscode.workspace.openNotebookDocument(uri);
   const editor = await vscode.window.showNotebookDocument(notebook);
+  assert.equal(notebook.cellAt(0).metadata.id, 'fixture-0');
   const manifest: unknown = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   assert.ok(record(manifest) && typeof manifest.publisher === 'string' && typeof manifest.name === 'string');
   const extensionId = `${manifest.publisher}.${manifest.name}`;

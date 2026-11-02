@@ -2,7 +2,7 @@
   "name": "notebook-git-gutter",
   "displayName": "Jupyter Notebook Git Marks",
   "description": "Live Git change markers in VS Code's native Jupyter Notebook cells.",
-  "version": "0.1.3",
+  "version": "0.1.7",
   "publisher": "StevenYang0316-5274",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -11,7 +11,7 @@
   },
   "engines": {
     "vscode": "^1.130.0",
-    "node": ">=22.13.0"
+    "node": "^24.22.2"
   },
   "extensionKind": [
     "workspace"
@@ -34,17 +34,17 @@
     }
   },
   "scripts": {
-    "compile": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true })\" && tsc -p .",
+    "compile": "node scripts/build.cjs",
     "typecheck": "tsc -p . --noEmit",
-    "lint": "eslint src probe tests scripts",
+    "lint": "eslint src tests scripts",
     "test": "npm run compile && node --test --test-isolation=none out/tests/unit/*.test.js out/tests/integration/*.test.js",
     "test:integration": "npm run compile && node --test --test-isolation=none out/tests/integration/*.test.js",
-    "test:host": "npm run compile && node scripts/run-vscode.cjs host",
-    "vscode:prepublish": "node scripts/check-package.cjs && npm run compile",
-    "package": "vsce package --githubBranch main",
-    "test:ui": "npm run compile && node scripts/run-vscode.cjs ui",
+    "test:host": "npm run compile && node scripts/testing/run.cjs host",
+    "vscode:prepublish": "npm run compile",
+    "package": "node scripts/build.cjs --package",
+    "test:ui": "npm run compile && node scripts/testing/run.cjs ui",
     "benchmark": "npm run compile && node out/tests/performance.js",
-    "test:vsix": "npm run compile && node scripts/run-vscode.cjs vsix"
+    "test:vsix": "npm run compile && node scripts/testing/run.cjs vsix"
   },
   "dependencies": {
     "diff": "9.0.0"
@@ -74,7 +74,15 @@
       },
       {
         "command": "notebookGitGutter.showChange",
-        "title": "Jupyter Notebook Git Marks: Show Change"
+        "title": "Show Change"
+      },
+      {
+        "command": "notebookGitGutter.previousChangeCell",
+        "title": "Jupyter Notebook Git Marks: Previous Changed Cell"
+      },
+      {
+        "command": "notebookGitGutter.nextChangeCell",
+        "title": "Jupyter Notebook Git Marks: Next Changed Cell"
       }
     ],
     "configuration": {
